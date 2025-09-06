@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Asylkhan Journal — Minimal Gamified</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root { color-scheme: light; }
+    body { font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial; }
+    .card { border-radius: 1.25rem; box-shadow: 0 2px 10px rgba(0,0,0,.04), 0 12px 40px rgba(0,0,0,.06); }
+    .chip { border-radius: 999px; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-900 antialiased min-h-screen">
+  <div class="mx-auto max-w-4xl px-4 py-6">
+    <!-- Topbar -->
+    <header class="flex items-center justify-between gap-4 mb-6">
+      <div>
+        <h1 class="text-2xl font-semibold tracking-tight">Asylkhan Journal</h1>
+        <p id="todayLabel" class="text-sm text-slate-500"></p>
+      </div>
+      <div class="card bg-white px-4 py-2">
+        <div class="text-xs text-slate-500">Текущий уровень</div>
+        <div class="flex items-baseline gap-2">
+          <span id="levelName" class="text-base font-semibold">—</span>
+          <span id="xpTotal" class="text-sm text-slate-500">0 XP</span>
+        </div>
+        <div class="mt-1 h-1.5 w-48 bg-slate-100 rounded-full overflow-hidden">
+          <div id="levelProgress" class="h-full bg-slate-900 w-0"></div>
+        </div>
+        <div id="levelHint" class="mt-1 text-[11px] text-slate-500"></div>
+      </div>
+    </header>
+
+    <!-- Tabs -->
+    <nav class="mb-4 flex gap-2">
+      <button id="tabHome" class="chip px-3 py-1.5 bg-slate-900 text-white text-sm">Главная</button>
+      <button id="tabTasks" class="chip px-3 py-1.5 bg-white text-slate-900 ring-1 ring-slate-200 text-sm">Задачи</button>
+    </nav>
+
+    <main id="viewHome">
+      <!-- Daily -->
+      <section class="card bg-white p-5 mb-6">
+        <div class="flex items-center justify-between">
+          <h2 class="text-lg font-semibold">Дейли-челленджи</h2>
+          <div class="text-xs text-slate-500">Дедлайн: 00:00 (Asia/Oral)</div>
+        </div>
+        <p class="mt-1 text-sm text-slate-500">Каждый = 1 балл. Все 4 = 4 балла. Не закрыл до полуночи → штраф −8 (можно включить ×2).</p>
+        <div id="dailyList" class="mt-4 space-y-3"></div>
+
+        <div class="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <div class="flex items-center justify-between mb-1"><span class="text-sm text-slate-600">Очки за сегодня</span><span id="todayPoints" class="text-sm font-semibold">0 / 12</span></div>
+            <div class="h-2 w-full bg-slate-100 rounded-full overflow-hidden"><div id="todayProgress" class="h-full bg-slate-900 w-0"></div></div>
+            <div id="tvStatus" class="mt-2 text-sm"></div>
+            <div id="midnightCountdown" class="mt-1 text-xs text-slate-500"></div>
+          </div>
+          <div>
+            <div class="flex items-center justify-between mb-1"><span class="text-sm text-slate-600">Очки недели</span><span id="weekPoints" class="text-sm font-semibold">0 / 72</span></div>
+            <div class="h-2 w-full bg-slate-100 rounded-full overflow-hidden"><div id="weekProgress" class="h-full bg-slate-900 w-0"></div></div>
+            <div id="weekStatus" class="mt-2 text-sm"></div>
+            <div class="text-xs text-slate-500" id="weekRange"></div>
+          </div>
+        </div>
+
+        <div class="mt-4 flex items-center justify-between flex-wrap gap-2">
+          <label class="flex items-center gap-2 text-sm"><input id="doublePenalty" type="checkbox" class="rounded border-slate-300"> Удвоить штраф после 00:00</label>
+          <div class="flex items-center gap-2">
+            <button id="closeDayBtn" class="text-sm chip bg-slate-900 text-white px-3 py-1.5">Закрыть день сейчас</button>
+            <button id="resetTodayBtn" class="text-sm text-slate-600 hover:text-slate-900">Сбросить сегодня</button>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <main id="viewTasks" class="hidden">
+      <section class="card bg-white p-5">
+        <div class="flex items-center justify-between">
+          <h2 class="text-lg font-semibold">Задачи</h2>
+          <button id="addTaskBtn" class="chip px-3 py-1.5 bg-slate-900 text-white text-sm">+ Задача</button>
+        </div>
+        <p class="mt-1 text-sm text-slate-500">Нажми «Выполнено», чтобы засчитать задачу **сегодня** (+2 балла). Повторное нажатие — отмена.</p>
+        <div id="tasksList" class="mt-4 space-y-2"></div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    // ===== Constants =====
+    const TZ = 'Asia/Oral';
+    const STORAGE_KEY = 'asyl_minimal_v1';
+
+    const LEVELS = [
+      { min: 0, max: 49, name: 'Сырой' },
+      { min: 50, max: 124, name: 'Колеблющийся' },
+      { min: 125, max: 224, name: 'Осознанный' },
+      { min: 225, max: 349, name: 'Собранный' },
+      { min: 350, max: 499, name: 'Фокусированный' },
+      { min: 500, max: 699, name: 'Управляющий собой' },
+      { min: 700, max: 949, name: 'Непоколебимый' },
+      { min: 950, max: 1249, name: 'Стальной' },
+      { min: 1250, max: 1590, name: 'Абсолютный контроль' },
+      { min: 1600, max: Infinity, name: 'Железная воля' }
+    ];
+
+    // ===== State =====
+    const DEFAULT_STATE = () => ({
+      settings: { doublePenalty: true },
+      xpTotal: 0,
+      tasks: [
+        { id: uid(), title: 'Сделать пост в Instagram', doneDates: {} },
+        { id: uid(), title: 'Позвонить поставщику', doneDates: {} },
+      ],
+      days: { /* 'YYYY-MM-DD': { daily:{wake,diet,sport,learn}, penaltyApplied, locked } */ }
+    });
+
+    function uid(){ return Math.random().toString(36).slice(2,9); }
+    function tNow(){ return new Date(new Date().toLocaleString('en-US', { timeZone: TZ })); }
+    function dKey(d=tNow()){ return d.toISOString().slice(0,10); }
+    function fmtDate(d){ return new Intl.DateTimeFormat('ru-RU',{ dateStyle:'full', timeZone: TZ }).format(d); }
+    function startOfWeek(d=tNow()){ const x=new Date(d); const wd=(x.getDay()+6)%7; x.setDate(x.getDate()-wd); x.setHours(0,0,0,0); return x; }
+    function endOfWeek(d=tNow()){ const s=startOfWeek(d); const e=new Date(s); e.setDate(s.getDate()+6); e.setHours(23,59,59,999); return e; }
+
+    let state = load();
+    function load(){ try{ const raw=localStorage.getItem(STORAGE_KEY); return raw? JSON.parse(raw): DEFAULT_STATE(); } catch{ return DEFAULT_STATE(); } }
+    function save(){ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+
+    function ensureDay(k=dKey()){
+      if(!state.days[k]) state.days[k] = { daily:{wake:false,diet:false,sport:false,learn:false}, penaltyApplied:false, locked:false };
+      return state.days[k];
+    }
+
+    // ===== Points =====
+    function dailyPoints(k=dKey()){
+      const d=state.days[k]; if(!d) return 0; const {wake,diet,sport,learn}=d.daily; return (wake?1:0)+(diet?1:0)+(sport?1:0)+(learn?1:0);
+    }
+    function taskPointsForDay(k=dKey()){
+      return state.tasks.reduce((a,t)=> a + (t.doneDates && t.doneDates[k]? 2:0), 0);
+    }
+    function penaltyForDay(k=dKey()){
+      const d=state.days[k]; if(!d) return 0; return d.penaltyApplied? (state.settings.doublePenalty?-16:-8): 0;
+    }
+    function totalPointsForDay(k=dKey()){
+      return dailyPoints(k) + taskPointsForDay(k) + penaltyForDay(k);
+    }
+    function weekKeys(ref=tNow()){
+      const s=startOfWeek(ref), e=endOfWeek(ref); const keys=[]; const cur=new Date(s);
+      while(cur<=e){ keys.push(cur.toISOString().slice(0,10)); cur.setDate(cur.getDate()+1);} return keys;
+    }
+    function weekPoints(){ return weekKeys().reduce((a,k)=> a + totalPointsForDay(k), 0); }
+
+    // ===== Levels =====
+    function getLevel(xp){ for(const l of LEVELS){ if(xp>=l.min && xp<=l.max) return l; } return LEVELS[LEVELS.length-1]; }
+    function nextLevelInfo(xp){ const i=LEVELS.findIndex(l=> xp>=l.min && xp<=l.max); if(i<0||i===LEVELS.length-1) return { nextName:'MAX', need:0, progress:1}; const cur=LEVELS[i], next=LEVELS[i+1]; const span=(cur.max-cur.min+1); const into=(xp-cur.min); return { nextName: next.name, need: Math.max(0,(cur.max+1)-xp), progress: Math.max(0,Math.min(1, into/span)) } }
+
+    // ===== Midnight Rules =====
+    function msToMidnight(){ const now=tNow(); const m=new Date(now); m.setHours(24,0,0,0); return m-now; }
+    function applyMidnightRules(){ const k=dKey(); const d=ensureDay(k); if(!d.locked){ if(dailyPoints(k)<4 && !d.penaltyApplied){ d.penaltyApplied=true; state.xpTotal=Math.max(0, state.xpTotal+(state.settings.doublePenalty?-16:-8)); } d.locked=true; save(); render(); } setTimeout(()=>{ ensureDay(dKey()); save(); render(); },1000); }
+
+    // ===== Header =====
+    function renderHeader(){
+      document.getElementById('todayLabel').textContent = fmtDate(tNow());
+      const lvl = getLevel(state.xpTotal);
+      document.getElementById('levelName').textContent = lvl.name;
+      document.getElementById('xpTotal').textContent = `${state.xpTotal} XP`;
+      const ni = nextLevelInfo(state.xpTotal);
+      document.getElementById('levelProgress').style.width = `${Math.round(ni.progress*100)}%`;
+      document.getElementById('levelHint').textContent = ni.need>0 ? `До «${ni.nextName}»: ${ni.need} XP` : 'Максимальный уровень';
+    }
+
+    // ===== Home (Daily) =====
+    function renderDaily(){
+      const k=dKey(); const d=ensureDay(k);
+      const list=document.getElementById('dailyList'); list.innerHTML='';
+      const items=[
+        {key:'wake',label:'Подъём до 09:00'},
+        {key:'diet',label:'Диета'},
+        {key:'sport',label:'Спорт или 15 000 шагов'},
+        {key:'learn',label:'Обучение'}
+      ];
+      for(const it of items){
+        const row=document.createElement('div'); row.className='flex items-center justify-between gap-3 p-3 bg-slate-50 rounded-xl';
+        const left=document.createElement('div'); left.className='flex items-center gap-3';
+        const cb=document.createElement('input'); cb.type='checkbox'; cb.className='size-5 rounded border-slate-300'; cb.checked=!!d.daily[it.key]; cb.disabled=d.locked;
+        cb.addEventListener('change',()=>{ d.daily[it.key]=cb.checked; if(cb.checked) state.xpTotal+=1; else state.xpTotal=Math.max(0,state.xpTotal-1); save(); render(); });
+        const lbl=document.createElement('span'); lbl.textContent=it.label; lbl.className='text-sm';
+        left.append(cb,lbl);
+        const pts=document.createElement('div'); pts.className='text-xs text-slate-500'; pts.textContent='+1';
+        row.append(left,pts); list.appendChild(row);
+      }
+      const todays = totalPointsForDay(k);
+      document.getElementById('todayPoints').textContent = `${todays} / 12`;
+      document.getElementById('todayProgress').style.width = `${Math.max(0,Math.min(100,(todays/12)*100))}%`;
+      document.getElementById('tvStatus').textContent = todays>=12 ? '🎉 Доступно: 3 часа ТВ' : '⏳ Набери 12 баллов для 3 часов ТВ';
+
+      // countdown
+      const ms = msToMidnight();
+      const s=Math.max(0,Math.floor(ms/1000)); const h=String(Math.floor(s/3600)).padStart(2,'0'); const m=String(Math.floor((s%3600)/60)).padStart(2,'0'); const ss=String(s%60).padStart(2,'0');
+      document.getElementById('midnightCountdown').textContent = `До закрытия дня: ${h}:${m}:${ss}`;
+
+      document.getElementById('doublePenalty').checked = !!state.settings.doublePenalty;
+    }
+
+    function renderWeek(){
+      const wpts = weekPoints();
+      document.getElementById('weekPoints').textContent = `${wpts} / 72`;
+      document.getElementById('weekProgress').style.width = `${Math.max(0,Math.min(100,(wpts/72)*100))}%`;
+      const isSunday = tNow().getDay()===0;
+      document.getElementById('weekStatus').textContent = wpts>=72 ? (isSunday? '🛌 Сегодня можно взять выходной' : '✅ На пути к выходному в воскресенье') : '⏳ Нужно 72 балла к воскресенью';
+      const s=startOfWeek(), e=endOfWeek();
+      document.getElementById('weekRange').textContent = `Неделя: ${s.toLocaleDateString('ru-RU',{timeZone:TZ})} — ${e.toLocaleDateString('ru-RU',{timeZone:TZ})}`;
+    }
+
+    // ===== Tasks =====
+    function renderTasks(){
+      const k=dKey();
+      const list=document.getElementById('tasksList'); list.innerHTML='';
+      for(const t of state.tasks){
+        const row=document.createElement('div'); row.className='flex items-center justify-between bg-slate-50 rounded-xl p-3';
+        const left=document.createElement('div'); left.className='flex items-center gap-2';
+        const title=document.createElement('span'); title.textContent=t.title; title.className='text-sm';
+        left.append(title);
+        const right=document.createElement('div'); right.className='flex items-center gap-2 text-xs';
+        const done=!!(t.doneDates && t.doneDates[k]);
+        const doneBtn=document.createElement('button'); doneBtn.textContent=done? 'Отменить':'Выполнено'; doneBtn.className='px-2 py-1 chip '+(done?'bg-slate-200':'bg-slate-900 text-white');
+        doneBtn.onclick=()=>{ if(!t.doneDates) t.doneDates={}; if(t.doneDates[k]){ delete t.doneDates[k]; state.xpTotal=Math.max(0,state.xpTotal-2); } else { t.doneDates[k]=true; state.xpTotal+=2; } save(); render(); };
+        const edit=document.createElement('button'); edit.textContent='Редактировать'; edit.onclick=()=>{ const nt=prompt('Изменить задачу', t.title); if(nt){ t.title=nt; save(); renderTasks(); } };
+        const del=document.createElement('button'); del.textContent='Удалить'; del.className='text-red-600'; del.onclick=()=>{ if(confirm('Удалить задачу?')){ if(done) state.xpTotal=Math.max(0,state.xpTotal-2); state.tasks=state.tasks.filter(x=>x.id!==t.id); save(); render(); } };
+        right.append(doneBtn, edit, del);
+        row.append(left,right); list.appendChild(row);
+      }
+    }
+
+    // ===== Events =====
+    document.getElementById('doublePenalty').addEventListener('change', (e)=>{ state.settings.doublePenalty = e.target.checked; save(); });
+    document.getElementById('closeDayBtn').addEventListener('click', ()=>{ if(!confirm('Закрыть день прямо сейчас?')) return; const k=dKey(); const d=ensureDay(k); if(dailyPoints(k)<4 && !d.penaltyApplied){ d.penaltyApplied=true; state.xpTotal=Math.max(0,state.xpTotal+(state.settings.doublePenalty?-16:-8)); } d.locked=true; save(); render(); });
+    document.getElementById('resetTodayBtn').addEventListener('click', ()=>{ if(!confirm('Сбросить отметки за сегодня?')) return; const k=dKey(); const d=ensureDay(k); const dp=dailyPoints(k); state.xpTotal=Math.max(0,state.xpTotal-dp); for(const t of state.tasks){ if(t.doneDates && t.doneDates[k]){ delete t.doneDates[k]; state.xpTotal=Math.max(0,state.xpTotal-2); } } d.daily={wake:false,diet:false,sport:false,learn:false}; d.penaltyApplied=false; d.locked=false; save(); render(); });
+
+    document.getElementById('addTaskBtn').addEventListener('click', ()=>{ const title=prompt('Новая задача'); if(!title) return; state.tasks.push({ id: uid(), title, doneDates:{} }); save(); renderTasks(); });
+
+    document.getElementById('tabHome').addEventListener('click', ()=>{ document.getElementById('viewHome').classList.remove('hidden'); document.getElementById('viewTasks').classList.add('hidden'); document.getElementById('tabHome').classList.add('bg-slate-900','text-white'); document.getElementById('tabTasks').classList.remove('bg-slate-900','text-white'); document.getElementById('tabTasks').classList.add('bg-white','text-slate-900'); });
+    document.getElementById('tabTasks').addEventListener('click', ()=>{ document.getElementById('viewTasks').classList.remove('hidden'); document.getElementById('viewHome').classList.add('hidden'); document.getElementById('tabTasks').classList.add('bg-slate-900','text-white'); document.getElementById('tabHome').classList.remove('bg-slate-900','text-white'); document.getElementById('tabHome').classList.add('bg-white','text-slate-900'); });
+
+    // ===== Tickers =====
+    setInterval(()=>{ const ms=msToMidnight(); const s=Math.max(0,Math.floor(ms/1000)); const h=String(Math.floor(s/3600)).padStart(2,'0'); const m=String(Math.floor((s%3600)/60)).padStart(2,'0'); const ss=String(s%60).padStart(2,'0'); const el=document.getElementById('midnightCountdown'); if(el) el.textContent=`До закрытия дня: ${h}:${m}:${ss}`; },1000);
+    setTimeout(()=> applyMidnightRules(), msToMidnight()+1200);
+
+    // ===== Root Render =====
+    function render(){ renderHeader(); renderDaily(); renderWeek(); renderTasks(); }
+    ensureDay(dKey());
+    render();
+  </script>
+</body>
+</html>
